@@ -251,3 +251,10 @@ ModelManifest.xml
 
 # FAKE - F# Make
 .fake/
+CMakeFiles/
+Test/CMakeFiles/
+Test/Makefile
+Test/cmake_install.cmake
+build/
+cmake-build-*/
+Makefile
