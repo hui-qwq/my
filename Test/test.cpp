@@ -11,7 +11,7 @@
 // #include "algorithm_performance_test.h"
 // #include "algorithm_test.h"
 #include "vector_test.h"
-// #include "list_test.h"
+#include "list_test.h"
 // #include "deque_test.h"
 // #include "queue_test.h"
 // #include "stack_test.h"
@@ -33,7 +33,7 @@ int main()
   // iterator_test::stream_iterator_test();
   // std::cout << "ONLY VECTOR TEST\n";
   vector_test::vector_test();
-  // list_test::list_test();
+  list_test::list_test();
   // deque_test::deque_test();
   // queue_test::queue_test();
   // queue_test::priority_test();
