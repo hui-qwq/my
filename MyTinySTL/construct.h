@@ -1,11 +1,13 @@
-﻿#ifndef MYTINYSTL_CONSTRUCT_H_
-#define MYTINYSTL_CONSTRUCT_H_
+﻿#pragma once
 
 // 这个头文件包含两个函数 construct，destroy
 // construct : 负责对象的构造
 // destroy   : 负责对象的析构
 
+#include <iterator>
 #include <new>
+#include <type_traits>
+#include <utility>
 
 #include "type_traits.h"
 #include "iterator.h"
@@ -18,69 +20,53 @@
 
 namespace mystl
 {
+  template<class T> 
+  void construct(T* ptr) {
+    ::new((void*)ptr) T();
+  }
 
-// construct 构造对象
+  template<class T1, class T2> 
+  void construct(T1* ptr, const T2& value) {
+    ::new((void*)ptr) T1(value);
+  }
 
-template <class Ty>
-void construct(Ty* ptr)
-{
-  ::new ((void*)ptr) Ty();
-}
+  template<class T1, class... Args>
+  void construct(T1* ptr, Args&&... args) {
+    ::new((void*)ptr) T1(std::forward<Args>(args)...);
+  }
 
-template <class Ty1, class Ty2>
-void construct(Ty1* ptr, const Ty2& value)
-{
-  ::new ((void*)ptr) Ty1(value);
-}
+  template<class T> 
+  void destroy_one(T*, std::true_type) {}
 
-template <class Ty, class... Args>
-void construct(Ty* ptr, Args&&... args)
-{
-  ::new ((void*)ptr) Ty(mystl::forward<Args>(args)...);
-}
+  template<class T>
+  void destroy_one(T* ptr, std::false_type) {
+    if(ptr != nullptr) ptr->~T();
+  }
 
-// destroy 将对象析构
+  template<class T>
+  void destroy(T* ptr) {
+    destroy_one(ptr, std::is_trivially_destructible<T>{});
+  }
 
-template <class Ty>
-void destroy_one(Ty*, std::true_type) {}
+  template<class ForwardIter>
+  void destroy_cat(ForwardIter first, ForwardIter last, std::true_type) {}
 
-template <class Ty>
-void destroy_one(Ty* pointer, std::false_type)
-{
-  if (pointer != nullptr)
-  {
-    pointer->~Ty();
+  template<class ForwardIter>
+  void destroy_cat(ForwardIter first, ForwardIter last, std::false_type) {
+    for(; first != last; ++ first) {
+      destroy(&*first);
+    }
+  }
+
+  template<class ForwardIter>
+  void destroy(ForwardIter first, ForwardIter last) {
+    using ValueType = typename std::iterator_traits<ForwardIter>::value_type;
+    destroy_cat(first, last, std::is_trivially_destructible<ValueType>{});
   }
 }
-
-template <class ForwardIter>
-void destroy_cat(ForwardIter , ForwardIter , std::true_type) {}
-
-template <class ForwardIter>
-void destroy_cat(ForwardIter first, ForwardIter last, std::false_type)
-{
-  for (; first != last; ++first)
-    destroy(&*first);
-}
-
-template <class Ty>
-void destroy(Ty* pointer)
-{
-  destroy_one(pointer, std::is_trivially_destructible<Ty>{});
-}
-
-template <class ForwardIter>
-void destroy(ForwardIter first, ForwardIter last)
-{
-  destroy_cat(first, last, std::is_trivially_destructible<
-              typename iterator_traits<ForwardIter>::value_type>{});
-}
-
-} // namespace mystl
 
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif // _MSC_VER
 
-#endif // !MYTINYSTL_CONSTRUCT_H_
 
