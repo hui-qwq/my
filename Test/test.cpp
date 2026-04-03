@@ -1,131 +1,54 @@
-﻿#include <iostream>
-#include <string>
-#include "../MyTinySTL/allocator.h"
-#include "../MyTinySTL/construct.h"
+﻿#ifdef _MSC_VER
+#define _SCL_SECURE_NO_WARNINGS
+#endif
 
-class Test
-{
-public:
-    std::string name;
+#if defined(_MSC_VER) && defined(_DEBUG)
+#define _CRTDBG_MAP_ALLOC 
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif // check memory leaks
 
-    Test() : name("default")
-    {
-        std::cout << "default ctor\n";
-    }
-
-    Test(const std::string& s) : name(s)
-    {
-        std::cout << "value ctor: " << name << "\n";
-    }
-
-    Test(const Test& other) : name(other.name)
-    {
-        std::cout << "copy ctor: " << name << "\n";
-    }
-
-    Test(Test&& other) noexcept : name(std::move(other.name))
-    {
-        std::cout << "move ctor: " << name << "\n";
-    }
-
-    ~Test()
-    {
-        std::cout << "dtor: " << name << "\n";
-    }
-};
-
-void test_single()
-{
-    std::cout << "==== test_single ====\n";
-
-    Test* p = mystl::allocator<Test>::allocate();
-    mystl::allocator<Test>::construct(p, "hello");
-
-    std::cout << "object name = " << p->name << "\n";
-
-    mystl::allocator<Test>::destroy(p);
-    mystl::allocator<Test>::deallocate(p);
-}
-
-void test_array()
-{
-    std::cout << "==== test_array ====\n";
-
-    Test* p = mystl::allocator<Test>::allocate(3);
-
-    mystl::allocator<Test>::construct(p, "A");
-    mystl::allocator<Test>::construct(p + 1, "B");
-    mystl::allocator<Test>::construct(p + 2, "C");
-
-    std::cout << p[0].name << " " << p[1].name << " " << p[2].name << "\n";
-
-    mystl::allocator<Test>::destroy(p);
-    mystl::allocator<Test>::destroy(p + 1);
-    mystl::allocator<Test>::destroy(p + 2);
-
-    mystl::allocator<Test>::deallocate(p, 3);
-}
-
-void test_copy_construct()
-{
-    std::cout << "==== test_copy_construct ====\n";
-
-    Test t("copy_source");
-
-    Test* p = mystl::allocator<Test>::allocate();
-    mystl::allocator<Test>::construct(p, t);
-
-    std::cout << "object name = " << p->name << "\n";
-
-    mystl::allocator<Test>::destroy(p);
-    mystl::allocator<Test>::deallocate(p);
-}
-
-void test_move_construct()
-{
-    std::cout << "==== test_move_construct ====\n";
-
-    Test t("move_source");
-
-    Test* p = mystl::allocator<Test>::allocate();
-    mystl::allocator<Test>::construct(p, std::move(t));
-
-    std::cout << "object name = " << p->name << "\n";
-
-    mystl::allocator<Test>::destroy(p);
-    mystl::allocator<Test>::deallocate(p);
-}
-
-void test_construct_only()
-{
-    std::cout << "==== test_construct_only ====\n";
-
-    void* raw = ::operator new(sizeof(Test));
-    Test* p = static_cast<Test*>(raw);
-
-    mystl::construct(p, "construct_only");
-    std::cout << "object name = " << p->name << "\n";
-
-    mystl::destroy(p);
-    ::operator delete(p);
-}
+// #include "algorithm_performance_test.h"
+// #include "algorithm_test.h"
+#include "vector_test.h"
+#include "list_test.h"
+// #include "deque_test.h"
+// #include "queue_test.h"
+// #include "stack_test.h"
+// #include "map_test.h"
+// #include "set_test.h"
+// #include "unordered_map_test.h"
+// #include "unordered_set_test.h"
+// #include "string_test.h"
+#include "iterator_test.h"
 
 int main()
 {
-    test_single();
-    std::cout << "\n";
+  using namespace mystl::test;
 
-    test_array();
-    std::cout << "\n";
+  std::cout.sync_with_stdio(false);
 
-    test_copy_construct();
-    std::cout << "\n";
+  //RUN_ALL_TESTS();
+  // algorithm_performance_test::algorithm_performance_test();
+  iterator_test::stream_iterator_test();
+  vector_test::vector_test();
+  list_test::list_test();
+  // deque_test::deque_test();
+  // queue_test::queue_test();
+  // queue_test::priority_test();
+  // stack_test::stack_test();
+  // map_test::map_test();
+  // map_test::multimap_test();
+  // set_test::set_test();
+  // set_test::multiset_test();
+  // unordered_map_test::unordered_map_test();
+  // unordered_map_test::unordered_multimap_test();
+  // unordered_set_test::unordered_set_test();
+  // unordered_set_test::unordered_multiset_test();
+  // string_test::string_test();
 
-    test_move_construct();
-    std::cout << "\n";
+// #if defined(_MSC_VER) && defined(_DEBUG)
+//   _CrtDumpMemoryLeaks();
+// #endif // check memory leaks
 
-    test_construct_only();
-    std::cout << "\n";
-
-    return 0;
 }

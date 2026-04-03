@@ -68,7 +68,7 @@ public:
             tmp.begin_ = tmp.end_ = tmp.cap_ = nullptr; 
         }
         return *this;
-     }
+    }
     vector& operator=(std::initializer_list<T> list) { 
         vector tmp(list);
         swap(tmp);
