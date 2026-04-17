@@ -1,180 +1,150 @@
-#include <arpa/inet.h>
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
+#include <cassert>
+#include <iostream>
+#include <unordered_map>
+
 #include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <unistd.h>
 
-#include <iostream>
-#include <unordered_set>
-#include <string>
+struct ClientInfo {
+    int fd;
+    time_t lastActive;
+    std::string ip;
+    int port;
+};
 
-void set_nonblocking(int fd) {
-    int old_option = fcntl(fd, F_GETFL);
-    if(old_option < 0) {
-        std::cerr << "fcntl getfl error" << std::endl;
-        return;
-    }
-
-    int new_option = old_option | O_NONBLOCK;
-    if(fcntl(fd, F_SETFL, new_option) < 0) {
-        std::cerr << "fcntl setfl error" << std::endl;
-    }
+void setnonblocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-void add_fd(int epoll_fd, int fd) {
-    epoll_event ev{};
+void insertfd(int fd, int epfd) {
+    epoll_event ev;
+    ev.events = EPOLLIN | EPOLLHUP | EPOLLERR;
     ev.data.fd = fd;
-    ev.events = EPOLLIN | EPOLLRDHUP;
-    if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
-        std::cerr << "epoll_ctl add error" << std::endl;
-        return;
-    }
-    set_nonblocking(fd);
+    epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+    setnonblocking(fd);
 }
 
-void remove_fd(int epoll_fd, int fd) {
-    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
-    close(fd);
+void closeClient(int epfd, std::unordered_map<int, ClientInfo>& clients, int fd, const char* reason) {
+    auto it = clients.find(fd);
+    if (it != clients.end()) {
+        time_t now = time(nullptr);
+        std::cout << "[LOG] close connection, fd=" << it->second.fd
+                  << ", ip=" << it->second.ip
+                  << ", port=" << it->second.port
+                  << ", reason=" << reason
+                  << ", idle=" << (now - it->second.lastActive) << "s"
+                  << std::endl;
+
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
+        close(fd);
+        clients.erase(it);
+    }
 }
 
-int main(int argc, const char* argv[]) {
-    if(argc <= 2) {
-        std::cerr << "need ip port" << std::endl;
-        return 1;
+void timelimitex(int epfd, std::unordered_map<int, ClientInfo>& clients) {
+    time_t now = time(nullptr);
+    for (auto it = clients.begin(); it != clients.end();) {
+        if (now - it->second.lastActive > 30) {
+            int fd = it->first;
+            ++it;
+            closeClient(epfd, clients, fd, "timeout");
+        } else {
+            ++it;
+        }
     }
+}
 
+int main() {
     int listenfd = socket(AF_INET, SOCK_STREAM, 0);
-    std::string ip = argv[1];
-    int port = atoi(argv[2]);
+    assert(listenfd >= 0);
 
-    if(listenfd < 0) {
-        std::cerr << "socket error" << std::endl;
-        return 1;
-    }
-
-    int reuse = 1;
-    if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-        std::cerr << "setsockopt error" << std::endl;
-        close(listenfd);
-        return 1;
-    }
+    int opt = 1;
+    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setnonblocking(listenfd);
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if(inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) <= 0) {
-        std::cerr << "ip error" << std::endl;
-        close(listenfd);
-        return 1;
-    }
+    addr.sin_port = htons(8080);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if(bind(listenfd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        std::cerr << "bind error" << std::endl;
-        close(listenfd);
-        return 1;
-    }
+    assert(bind(listenfd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != -1);
+    assert(listen(listenfd, 128) != -1);
 
-    if(listen(listenfd, 8) < 0) {
-        std::cerr << "listen error" << std::endl;
-        close(listenfd);
-        return 1;
-    }
+    std::cout << "Server is listening on port 8080..." << std::endl;
 
-    int epollfd = epoll_create1(0);
-    if(epollfd < 0) {
-        std::cerr << "epoll_create1 error" << std::endl;
-        close(listenfd);
-        return 1;
-    }
+    int epfd = epoll_create1(0);
+    assert(epfd >= 0);
 
-    add_fd(epollfd, listenfd);
+    epoll_event ev;
+    ev.events = EPOLLIN | EPOLLHUP | EPOLLERR;
+    ev.data.fd = listenfd;
+    assert(epoll_ctl(epfd, EPOLL_CTL_ADD, listenfd, &ev) != -1);
+
     epoll_event events[1024];
-    std::unordered_set<int> clients;
+    std::unordered_map<int, ClientInfo> clients;
 
-    while(1) {
-        int num = epoll_wait(epollfd, events, 1024, -1);
-        if(num < 0) {
-            if(errno == EINTR) continue;
-            std::cerr << "epoll_wait error" << std::endl;
+    while (true) {
+        int n = epoll_wait(epfd, events, 1024, 1000);
+        if (n < 0) {
+            std::cerr << "epoll_wait failed\n";
             break;
         }
 
-        for(int i = 0; i < num; ++i) {
-            int sockfd = events[i].data.fd;
-            auto ev = events[i].events;
-
-            if(sockfd == listenfd) {
-                while(1) {
-                    sockaddr_in client_addr{};
-                    socklen_t client_len = sizeof(client_addr);
-                    int confd = accept(listenfd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
-
-                    if(confd < 0) {
-                        if(errno == EAGAIN || errno == EWOULDBLOCK) break;
-                        std::cerr << "accept error" << std::endl;
+        for (int i = 0; i < n; i++) {
+            if (events[i].data.fd == listenfd) {
+                while (true) {
+                    sockaddr_in clientAddr{};
+                    socklen_t len = sizeof(clientAddr);
+                    int clientfd = accept(listenfd, reinterpret_cast<sockaddr*>(&clientAddr), &len);
+                    if (clientfd < 0) {
                         break;
                     }
 
-                    if(clients.size() >= 4096) {
-                        std::string msg = "too many user\n";
-                        send(confd, msg.c_str(), msg.size(), 0);
-                        close(confd);
-                        continue;
-                    }
+                    insertfd(clientfd, epfd);
 
-                    add_fd(epollfd, confd);
-                    clients.insert(confd);
+                    char ip[INET_ADDRSTRLEN] = {0};
+                    inet_ntop(AF_INET, &clientAddr.sin_addr, ip, sizeof(ip));
 
-                    char client_ip[1024]{};
-                    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip) - 1);
+                    clients[clientfd] = {clientfd, time(nullptr), ip, ntohs(clientAddr.sin_port)};
 
-                    std::cout << "new user: " << client_ip
-                            << ": " << ntohs(client_addr.sin_port)
-                            << ", fd = " << confd << std::endl;
+                    std::cout << "New connection from " << ip << ":" << ntohs(clientAddr.sin_port) << std::endl;
                 }
-            } else if(ev & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
-                std::cout << "client fd " << sockfd << " disconnected" << std::endl;
-                clients.erase(sockfd);
-                remove_fd(epollfd, sockfd);
-            } else if(ev & EPOLLIN) {
-                char buf[1024];
-                while(1) {
-                    std::fill(buf, buf + 1024, 0);
-                    int ret = recv(sockfd, buf, sizeof(buf) - 1, 0);
+            } else {
+                if (events[i].events & EPOLLIN) {
+                    char buffer[1024];
+                    int clientfd = events[i].data.fd;
+                    int n = recv(clientfd, buffer, sizeof(buffer) - 1, 0);
 
-                    if(ret > 0) {
-                        std::string msg = "client[" + std::to_string(sockfd) + "]: " + std::string(buf, ret);
-                        std::cout << msg;
-                        
-                        for(int fd : clients) {
-                            if(fd == sockfd) continue;
-                            int sret = send(fd, msg.c_str(), msg.size(), 0);
-                            if(sret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                                std::cerr << "send to fd " << fd << " failed\n";
+                    if (n > 0) {
+                        buffer[n] = '\0';
+                        std::cout << "Received from client: " << buffer << std::endl;
+                        std::string cur = buffer;
+                        cur = "client [" + std::to_string(clientfd) + "]: " + cur + "\n";
+
+                        for (auto& c : clients) {
+                            if (c.first != clientfd) {
+                                send(c.first, cur.c_str(), cur.size(), 0);
                             }
                         }
-                    } else if(ret == 0) {
-                        std::cout << "client fd " << sockfd << " closed\n";
-                        clients.erase(sockfd);
-                        remove_fd(epollfd, sockfd);
-                        break;
+
+                        clients[clientfd].lastActive = time(nullptr);
+                    } else if (n == 0) {
+                        closeClient(epfd, clients, clientfd, "client closed");
                     } else {
-                        if(errno == EAGAIN || errno == EWOULDBLOCK) break;
-                        std::cerr << "recv error" << std::endl;
-                        clients.erase(sockfd);
-                        remove_fd(epollfd, sockfd);
-                        break;
+                        closeClient(epfd, clients, clientfd, "recv error");
                     }
+                } else if (events[i].events & (EPOLLHUP | EPOLLERR)) {
+                    closeClient(epfd, clients, events[i].data.fd, "client disconnected");
                 }
             }
         }
-    }
 
-    close(listenfd);
-    close(epollfd);
-    return 0;
+        timelimitex(epfd, clients);
+    }
 }
