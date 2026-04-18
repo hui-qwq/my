@@ -1,7 +1,13 @@
+CXXFLAGS = -std=c++17
+LIBS = -levent
+
 all:server client
 
 server:server.cpp
-	g++ server.cpp -o server
+	g++ $(CXXFLAGS) server.cpp -o server $(LIBS)
 
 client:client.cpp
-	g++ client.cpp -o client
+	g++ $(CXXFLAGS) client.cpp -o client $(LIBS)
+
+clear:
+	rm -f server client
